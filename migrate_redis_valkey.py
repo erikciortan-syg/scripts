@@ -1,9 +1,10 @@
 import redis
 import concurrent.futures
 import os
+import hashlib
 
 SRC_REDIS = {
-    'host': 'master.production-us-east-1-redis.wpx1el.use1.cache.amazonaws.com',
+    'host': os.getenv('REDIS_HOST'),
     'port': 6379,
     'username': os.getenv('REDIS_USERNAME'),
     'password': os.getenv('REDIS_PASSWORD'),
@@ -12,7 +13,7 @@ SRC_REDIS = {
 }
 
 DST_REDIS = {
-    'host': 'master.production-us-east-1-valkey.wpx1el.use1.cache.amazonaws.com',
+    'host': os.getenv('VALKEY_HOST'),
     'port': 6379,
     'username': os.getenv('VALKEY_USERNAME', 'default'),
     'password': os.getenv('VALKEY_PASSWORD'),
@@ -20,9 +21,9 @@ DST_REDIS = {
     'db': 0,
 }
 
-THREADS = 10
-BATCH_SIZE = 500
-SCAN_COUNT = 1000
+THREADS = 20
+BATCH_SIZE = 1000
+SCAN_COUNT = 2000
 
 def connect(cfg):
     return redis.Redis(
@@ -35,16 +36,29 @@ def connect(cfg):
         decode_responses=False,
     )
 
-def migrate_batch(keys):
+SHARD_TOTAL = int(os.getenv('SHARD_TOTAL', '1'))
+SHARD_INDEX = int(os.getenv('SHARD_INDEX', '0'))
+
+def is_my_key(key: bytes) -> bool:
+    key_hash = int(hashlib.md5(key).hexdigest(), 16)
+    return key_hash % SHARD_TOTAL == SHARD_INDEX
+
+def migrate_batch(keys, db_index):
     if not keys:
         return 0
 
-    src = connect(SRC_REDIS)
-    dst = connect(DST_REDIS)
+    src_cfg = SRC_REDIS.copy()
+    src_cfg['db'] = db_index
+    src = connect(src_cfg)
+    dst_cfg = DST_REDIS.copy()
+    dst_cfg['db'] = db_index
+    dst = connect(dst_cfg)
     pipe = dst.pipeline(transaction=False)
 
     migrated = 0
-    for key in keys:
+        for key in keys:
+        if not is_my_key(key):
+            continue
         try:
             ttl = src.pttl(key)
             if ttl == -2:
@@ -85,26 +99,60 @@ def migrate_batch(keys):
     return migrated
 
 def main():
-    src = connect(SRC_REDIS)
-    cursor = 0
     total = 0
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=THREADS) as executor:
-        futures = []
-        while True:
-            cursor, keys = src.scan(cursor=cursor, count=SCAN_COUNT)
-            for i in range(0, len(keys), BATCH_SIZE):
-                batch = keys[i:i + BATCH_SIZE]
-                futures.append(executor.submit(migrate_batch, batch))
+    for db_index in range(16):
+        print(f"📦 Migrating DB {db_index}...")
+        SRC_REDIS['db'] = db_index
+        src = connect(SRC_REDIS)
+        cursor = 0
 
-            if cursor == 0:
-                break
+        with concurrent.futures.ThreadPoolExecutor(max_workers=THREADS) as executor:
+            futures = []
+            while True:
+                cursor, keys = src.scan(cursor=cursor, count=SCAN_COUNT)
+                for i in range(0, len(keys), BATCH_SIZE):
+                    batch = keys[i:i + BATCH_SIZE]
+                    futures.append(executor.submit(migrate_batch, batch, db_index))
 
-        for future in concurrent.futures.as_completed(futures):
-            total += future.result()
+                if cursor == 0:
+                    break
+
+            for future in concurrent.futures.as_completed(futures):
+                total += future.result()
+                with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "w") as log_file:
+                log_file.write(f"Progress: {total} keys migrated")
             print(f"Progress: {total} keys migrated", flush=True)
 
+    with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "a") as log_file:
+        log_file.write(f"✅ Migration complete. Total keys migrated: {total}")
     print(f"✅ Migration complete. Total keys migrated: {total}")
 
+    print("
+🔍 Validation Summary:")
+    for db_index in range(16):
+        src_cfg = SRC_REDIS.copy()
+        src_cfg['db'] = db_index
+        dst_cfg = DST_REDIS.copy()
+        dst_cfg['db'] = db_index
+
+        src_count = connect(src_cfg).dbsize()
+        dst_count = connect(dst_cfg).dbsize()
+
+        status = "✅ OK" if src_count == dst_count else "⚠️ Mismatch"
+        print(f"DB {db_index}: Source = {src_count}, Destination = {dst_count} --> {status}")
+    print("\n🔍 Validation Summary:")
+    for db_index in range(16):
+      src_cfg = SRC_REDIS.copy()
+      src_cfg['db'] = db_index
+      dst_cfg = DST_REDIS.copy()
+      dst_cfg['db'] = db_index
+
+      src_count = connect(src_cfg).dbsize()
+      dst_count = connect(dst_cfg).dbsize()
+
+      status = "✅ OK" if src_count == dst_count else "⚠️ Mismatch"
+      print(f"DB {db_index}: Source = {src_count}, Destination = {dst_count} --> {status}")
+ 
 if __name__ == '__main__':
     main()
