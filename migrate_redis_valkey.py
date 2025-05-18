@@ -24,10 +24,7 @@ DST_REDIS = {
 }
 
 SHARD_TOTAL = int(os.getenv("SHARD_TOTAL", "1"))
-pod_name = os.getenv("POD_NAME", "redis-migrator-0")
-match = re.search(r"-(\d+)$", pod_name)
-SHARD_INDEX = int(match.group(1)) if match else 0
-print(f"🧩 DEBUG: SHARD_INDEX = {SHARD_INDEX}", flush=True)
+SHARD_INDEX = int(os.getenv("SHARD_INDEX", "0"))
 
 THREADS = 20
 BATCH_SIZE = 1000
