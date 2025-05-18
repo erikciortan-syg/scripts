@@ -125,8 +125,11 @@ def main():
             for future in concurrent.futures.as_completed(futures):
                 total += future.result()
                 print(f"Progress: {total} keys migrated", flush=True)
-                with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "w") as log_file:
-                    log_file.write(f"Progress: {total} keys migrated\n")
+                try:
+                    with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "w") as log_file:
+                        log_file.write(f"Progress: {total} keys migrated\n")
+                except Exception as e:
+                    print(f"⚠️ Failed to write progress log: {e}", flush=True)
 
     with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "a") as log_file:
         log_file.write(f"✅ Migration complete. Total keys migrated: {total}\n")
