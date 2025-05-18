@@ -27,6 +27,7 @@ SHARD_TOTAL = int(os.getenv("SHARD_TOTAL", "1"))
 pod_name = os.getenv("POD_NAME", "redis-migrator-0")
 match = re.search(r"-(\d+)$", pod_name)
 SHARD_INDEX = int(match.group(1)) if match else 0
+print(f"🧩 DEBUG: SHARD_INDEX = {SHARD_INDEX}", flush=True)
 
 THREADS = 20
 BATCH_SIZE = 1000
@@ -93,12 +94,12 @@ def migrate_batch(keys, db_index):
                 if members:
                     pipe.zadd(key, dict(members))
             else:
-                print(f"Skipping unsupported key type: {key_type.decode()} ({key})")
+                print(f"Skipping unsupported key type: {key_type.decode()} ({key})", flush=True)
                 continue
 
             migrated += 1
         except Exception as e:
-            print(f"Failed to migrate key: {key} ({e})")
+            print(f"Failed to migrate key: {key} ({e})", flush=True)
 
     pipe.execute()
     return migrated
@@ -106,7 +107,7 @@ def migrate_batch(keys, db_index):
 def main():
     total = 0
     for db_index in range(16):
-        print(f"\n📦 Migrating DB {db_index}...")
+        print(f"\n📦 Migrating DB {db_index}...", flush=True)
         SRC_REDIS['db'] = db_index
         cursor = 0
 
@@ -129,9 +130,9 @@ def main():
 
     with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "a") as log_file:
         log_file.write(f"✅ Migration complete. Total keys migrated: {total}\n")
-    print(f"✅ Migration complete. Total keys migrated: {total}")
+    print(f"✅ Migration complete. Total keys migrated: {total}", flush=True)
 
-    print("\n🔍 Validation Summary:")
+    print("\n🔍 Validation Summary:", flush=True)
     for db_index in range(16):
         src_cfg = SRC_REDIS.copy()
         src_cfg['db'] = db_index
@@ -141,7 +142,7 @@ def main():
         src_count = connect(src_cfg).dbsize()
         dst_count = connect(dst_cfg).dbsize()
         status = "✅ OK" if src_count == dst_count else "⚠️ Mismatch"
-        print(f"DB {db_index}: Source = {src_count}, Destination = {dst_count} --> {status}")
+        print(f"DB {db_index}: Source = {src_count}, Destination = {dst_count} --> {status}", flush=True)
 
 if __name__ == '__main__':
     main()
