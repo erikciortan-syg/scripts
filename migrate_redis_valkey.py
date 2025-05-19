@@ -140,8 +140,8 @@ def main():
     print(f"✅ Migration complete. Total keys migrated: {total}", flush=True)
 
     if total == 0:
-    with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "w") as log_file:
-        log_file.write("No keys migrated in this shard.\n")
+        with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "w") as log_file:
+            log_file.write("No keys migrated in this shard.\n")
 
     print("\n🔍 Validation Summary:", flush=True)
     for db_index in range(16):
