@@ -70,8 +70,10 @@ def migrate_batch(keys, db_index):
         try:
             ttl = src.pttl(key)
             if ttl == -2:
+                print(f"🔁 Skipped expired key: {key}", flush=True)
                 continue
             if dst.exists(key):
+                print(f"🔁 Skipped existing key in destination: {key}", flush=True)
                 continue
 
             key_type = src.type(key)
