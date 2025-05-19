@@ -58,10 +58,15 @@ def migrate_batch(keys, db_index):
     dst = connect(dst_cfg)
     pipe = dst.pipeline(transaction=False)
 
+    scanned = 0
+    shard_hits = 0
     migrated = 0
+
     for key in keys:
+        scanned += 1
         if not is_my_key(key):
             continue
+        shard_hits += 1
         try:
             ttl = src.pttl(key)
             if ttl == -2:
@@ -72,7 +77,6 @@ def migrate_batch(keys, db_index):
             key_type = src.type(key)
 
             if key_type == b'string':
-                value = src.get(key)
                 value = src.get(key)
                 if value is not None:
                     pipe.set(key, value, px=ttl if ttl > 0 else None)
@@ -101,6 +105,7 @@ def migrate_batch(keys, db_index):
             print(f"Failed to migrate key: {key} ({e})", flush=True)
 
     pipe.execute()
+    print(f"🧩 DB {db_index} | SHARD {SHARD_INDEX} scanned {scanned} keys, matched {shard_hits}, migrated {migrated}", flush=True)
     return migrated
 
 def main():
@@ -134,6 +139,10 @@ def main():
         log_file.write(f"✅ Migration complete. Total keys migrated: {total}\n")
     print(f"✅ Migration complete. Total keys migrated: {total}", flush=True)
 
+    if total == 0:
+    with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "w") as log_file:
+        log_file.write("No keys migrated in this shard.\n")
+
     print("\n🔍 Validation Summary:", flush=True)
     for db_index in range(16):
         src_cfg = SRC_REDIS.copy()
@@ -145,6 +154,6 @@ def main():
         dst_count = connect(dst_cfg).dbsize()
         status = "✅ OK" if src_count == dst_count else "⚠️ Mismatch"
         print(f"DB {db_index}: Source = {src_count}, Destination = {dst_count} --> {status}", flush=True)
-
+    
 if __name__ == '__main__':
     main()
