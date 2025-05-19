@@ -73,7 +73,9 @@ def migrate_batch(keys, db_index):
 
             if key_type == b'string':
                 value = src.get(key)
-                pipe.set(key, value, px=ttl if ttl > 0 else None)
+                value = src.get(key)
+                if value is not None:
+                    pipe.set(key, value, px=ttl if ttl > 0 else None)
             elif key_type == b'hash':
                 value = src.hgetall(key)
                 if value:
