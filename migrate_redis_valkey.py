@@ -110,22 +110,21 @@ def migrate_batch(keys, db_index):
                 print(f"Skipping unsupported key type: {key_type.decode()} ({key})", flush=True)
                 continue
 
-            migrated += 1
         except Exception as e:
             print(f"Failed to migrate key: {key} ({e})", flush=True)
 
     try:
         results = pipe.execute()
-            migrated += sum(1 for r in results if r is True or r == b'OK')
+        migrated += sum(1 for r in results if r is True or r == b'OK')
     except redis.exceptions.RedisError as e:
-    print(f"❌ Pipeline failed in DB {db_index}: {e}", flush=True)
+        print(f"❌ Pipeline failed in DB {db_index}: {e}", flush=True)
+        
     if shard_hits == 0:
         print(f"SHARD {SHARD_INDEX} scanned {scanned} keys in DB {db_index}, but no keys matched this shard", flush=True)
     
     print(f"🧩 DB {db_index} | SHARD {SHARD_INDEX} scanned {scanned} keys, matched {shard_hits}, migrated {migrated}, existing {skipped_existing}, expired {skipped_expired}", flush=True)
     return scanned, shard_hits, migrated, skipped_existing, skipped_expired
-        print(f"❌ Pipeline failed in DB {db_index}: {e}", flush=True)
-        
+
 def main():
     per_db_stats = {}
     total = 0
