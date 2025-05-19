@@ -79,7 +79,7 @@ def migrate_batch(keys, db_index):
             elif key_type == b'hash':
                 value = src.hgetall(key)
                 if value:
-                    pipe.hmset(key, value)
+                    pipe.hset(name=key, mapping=value)
             elif key_type == b'list':
                 items = src.lrange(key, 0, -1)
                 if items:
