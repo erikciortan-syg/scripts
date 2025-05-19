@@ -105,6 +105,9 @@ def migrate_batch(keys, db_index):
             print(f"Failed to migrate key: {key} ({e})", flush=True)
 
     pipe.execute()
+    if shard_hits == 0:
+        print(f"SHARD {SHARD_INDEX} scanned {scanned} keys in DB {db_index}, but no keys matched this shard", flush=True)
+    
     print(f"🧩 DB {db_index} | SHARD {SHARD_INDEX} scanned {scanned} keys, matched {shard_hits}, migrated {migrated}", flush=True)
     return migrated
 
@@ -120,6 +123,7 @@ def main():
             src = connect(SRC_REDIS)
             while True:
                 cursor, keys = src.scan(cursor=cursor, count=SCAN_COUNT)
+                print(f"SHARD {SHARD_INDEX} scanning DB {db_index}... got {len(keys)} keys from SCAN", flush=True)
                 for i in range(0, len(keys), BATCH_SIZE):
                     batch = keys[i:i + BATCH_SIZE]
                     futures.append(executor.submit(migrate_batch, batch, db_index))
@@ -130,18 +134,18 @@ def main():
                 total += future.result()
                 print(f"Progress: {total} keys migrated", flush=True)
                 try:
-                    with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "w") as log_file:
+                    with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "a") as log_file:
                         log_file.write(f"Progress: {total} keys migrated\n")
                 except Exception as e:
                     print(f"⚠️ Failed to write progress log: {e}", flush=True)
 
-    with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "a") as log_file:
-        log_file.write(f"✅ Migration complete. Total keys migrated: {total}\n")
-    print(f"✅ Migration complete. Total keys migrated: {total}", flush=True)
-
     if total == 0:
-        with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "w") as log_file:
+        with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "a") as log_file:
             log_file.write("No keys migrated in this shard.\n")
+    else:
+        with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "a") as log_file:
+            log_file.write(f"✅ Migration complete. Total keys migrated: {total}\n")
+    print(f"✅ Migration complete. Total keys migrated: {total}", flush=True)
 
     print("\n🔍 Validation Summary:", flush=True)
     for db_index in range(16):
@@ -154,6 +158,7 @@ def main():
         dst_count = connect(dst_cfg).dbsize()
         status = "✅ OK" if src_count == dst_count else "⚠️ Mismatch"
         print(f"DB {db_index}: Source = {src_count}, Destination = {dst_count} --> {status}", flush=True)
+        print(f"✅ DB {db_index} finished for SHARD {SHARD_INDEX}", flush=True)
     
 if __name__ == '__main__':
     main()
