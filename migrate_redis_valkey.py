@@ -3,6 +3,8 @@ import concurrent.futures
 import os
 import hashlib
 import re
+from datetime import datetime
+
 
 
 SRC_REDIS = {
@@ -39,6 +41,8 @@ def connect(cfg):
         ssl=cfg['ssl'],
         db=cfg['db'],
         decode_responses=False,
+        retry_on_timeout=True,
+        socket_timeout=10,
     )
 
 def is_my_key(key: bytes) -> bool:
@@ -47,7 +51,7 @@ def is_my_key(key: bytes) -> bool:
 
 def migrate_batch(keys, db_index):
     if not keys:
-        return 0
+        return 0, 0, 0, 0, 0
 
     src_cfg = SRC_REDIS.copy()
     src_cfg['db'] = db_index
@@ -61,6 +65,8 @@ def migrate_batch(keys, db_index):
     scanned = 0
     shard_hits = 0
     migrated = 0
+    skipped_existing = 0
+    skipped_expired = 0
 
     for key in keys:
         scanned += 1
@@ -70,10 +76,12 @@ def migrate_batch(keys, db_index):
         try:
             ttl = src.pttl(key)
             if ttl == -2:
-                print(f"🔁 Skipped expired key: {key}", flush=True)
+                skipped_expired += 1
+                # print(f"🔁 Skipped expired key: {key}", flush=True)
                 continue
             if dst.exists(key):
-                print(f"🔁 Skipped existing key in destination: {key}", flush=True)
+                skipped_existing += 1
+                # print(f"🔁 Skipped existing key in destination: {key}", flush=True)
                 continue
 
             key_type = src.type(key)
@@ -110,10 +118,11 @@ def migrate_batch(keys, db_index):
     if shard_hits == 0:
         print(f"SHARD {SHARD_INDEX} scanned {scanned} keys in DB {db_index}, but no keys matched this shard", flush=True)
     
-    print(f"🧩 DB {db_index} | SHARD {SHARD_INDEX} scanned {scanned} keys, matched {shard_hits}, migrated {migrated}", flush=True)
-    return migrated
+    print(f"🧩 DB {db_index} | SHARD {SHARD_INDEX} scanned {scanned} keys, matched {shard_hits}, migrated {migrated}, existing {skipped_existing}, expired {skipped_expired}", flush=True)
+    return scanned, shard_hits, migrated, skipped_existing, skipped_expired
 
 def main():
+    per_db_stats = {}
     total = 0
     for db_index in range(16):
         print(f"\n📦 Migrating DB {db_index}...", flush=True)
@@ -133,12 +142,19 @@ def main():
                     break
 
             for future in concurrent.futures.as_completed(futures):
-                total += future.result()
-                print(f"Progress: {total} keys migrated", flush=True)
-                try:
-                    with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "a") as log_file:
-                        log_file.write(f"Progress: {total} keys migrated\n")
-                except Exception as e:
+                scanned, shard_hits, migrated, skipped_existing, skipped_expired = future.result()
+                total += migrated
+                per_db_stats.setdefault(db_index, {"scanned": 0, "matched": 0, "migrated": 0, "skipped_existing": 0, "skipped_expired": 0})
+                per_db_stats[db_index]["scanned"] += scanned
+                per_db_stats[db_index]["matched"] += shard_hits
+                per_db_stats[db_index]["migrated"] += migrated
+                per_db_stats[db_index]["skipped_existing"] += skipped_existing
+                per_db_stats[db_index]["skipped_expired"] += skipped_expired
+                print(f"[{datetime.now().isoformat()}] Progress: {total} keys migrated", flush=True)
+            try:
+                with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "a") as log_file:
+                    log_file.write(f"[{datetime.now().isoformat()}] Progress: {total} keys migrated\n")
+            except Exception as e:
                     print(f"⚠️ Failed to write progress log: {e}", flush=True)
 
     if total == 0:
@@ -162,5 +178,16 @@ def main():
         print(f"DB {db_index}: Source = {src_count}, Destination = {dst_count} --> {status}", flush=True)
         print(f"✅ DB {db_index} finished for SHARD {SHARD_INDEX}", flush=True)
     
+    with open(f"/tmp/progress-shard{SHARD_INDEX}.log", "a") as log_file:
+        for db_index, stats in per_db_stats.items():
+            log_file.write(
+                f"DB {db_index} - Scanned: {stats['scanned']}, "
+                f"Matched: {stats['matched']}, "
+                f"Migrated: {stats['migrated']}, "
+                f"Skipped (existing): {stats['skipped_existing']}, "
+                f"Skipped (expired): {stats['skipped_expired']}\n"
+            )
+        log_file.write(f"✅ Total keys migrated: {total}\n")
+
 if __name__ == '__main__':
     main()
