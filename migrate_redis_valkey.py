@@ -81,6 +81,7 @@ def migrate_batch(keys, db_index):
                 continue
             if dst.exists(key):
                 skipped_existing += 1
+                keys_to_delete.append(key)
                 continue
 
             key_type = src.type(key)
