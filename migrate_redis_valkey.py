@@ -19,7 +19,7 @@ SRC_REDIS = {
 DST_REDIS = {
     'host': os.getenv('VALKEY_HOST'),
     'port': 6379,
-    'username': os.getenv('VALKEY_USERNAME', 'default'),
+    'username': os.getenv('VALKEY_USERNAME'),
     'password': os.getenv('VALKEY_PASSWORD'),
     'ssl': True,
     'db': 0,
