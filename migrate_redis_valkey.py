@@ -67,6 +67,7 @@ def migrate_batch(keys, db_index):
     migrated = 0
     skipped_existing = 0
     skipped_expired = 0
+    keys_to_delete = []
 
     for key in keys:
         scanned += 1
@@ -77,11 +78,9 @@ def migrate_batch(keys, db_index):
             ttl = src.pttl(key)
             if ttl == -2:
                 skipped_expired += 1
-                # print(f"🔁 Skipped expired key: {key}", flush=True)
                 continue
             if dst.exists(key):
                 skipped_existing += 1
-                # print(f"🔁 Skipped existing key in destination: {key}", flush=True)
                 continue
 
             key_type = src.type(key)
@@ -90,22 +89,27 @@ def migrate_batch(keys, db_index):
                 value = src.get(key)
                 if value is not None:
                     pipe.set(key, value, px=ttl if ttl > 0 else None)
+                    keys_to_delete.append(key)
             elif key_type == b'hash':
                 value = src.hgetall(key)
                 if value:
                     pipe.hset(name=key, mapping=value)
+                    keys_to_delete.append(key)
             elif key_type == b'list':
                 items = src.lrange(key, 0, -1)
                 if items:
                     pipe.rpush(key, *items)
+                    keys_to_delete.append(key)
             elif key_type == b'set':
                 members = src.smembers(key)
                 if members:
                     pipe.sadd(key, *members)
+                    keys_to_delete.append(key)
             elif key_type == b'zset':
                 members = src.zrange(key, 0, -1, withscores=True)
                 if members:
                     pipe.zadd(key, dict(members))
+                    keys_to_delete.append(key)
             else:
                 print(f"Skipping unsupported key type: {key_type.decode()} ({key})", flush=True)
                 continue
@@ -115,9 +119,17 @@ def migrate_batch(keys, db_index):
 
     try:
         results = pipe.execute()
-        migrated += sum(1 for r in results if r is True or r == b'OK')
+        # Only delete keys that were successfully migrated
+        successful_keys = [k for k, r in zip(keys_to_delete, results) if r is True or r == b'OK' or isinstance(r, int)]
+        if successful_keys:
+            try:
+                src.delete(*successful_keys)
+            except Exception as e:
+                print(f"⚠️ Failed to delete keys from source: {e}", flush=True)
+        migrated += len(successful_keys)
     except redis.exceptions.RedisError as e:
         print(f"❌ Pipeline failed in DB {db_index}: {e}", flush=True)
+        # If pipeline fails, do not delete any keys
         
     if shard_hits == 0:
         print(f"SHARD {SHARD_INDEX} scanned {scanned} keys in DB {db_index}, but no keys matched this shard", flush=True)
