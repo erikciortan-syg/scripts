@@ -61,6 +61,18 @@ def execute_with_retries(pipe, retries=3, delay=5):
             else:
                 raise
 
+def delete_with_retries(src, *keys, retries=3, delay=2):
+    for attempt in range(retries):
+        try:
+            return src.delete(*keys)
+        except Exception as e:
+            if attempt < retries - 1:
+                print(f"⚠️ Delete failed (attempt {attempt+1}/{retries}) for keys: {[k.hex() for k in keys]} ({e})", flush=True)
+                time.sleep(delay)
+            else:
+                print(f"❌ Delete failed after {retries} attempts for keys: {[k.hex() for k in keys]} ({e})", flush=True)
+                return None
+
 def migrate_batch(keys, db_index):
     if not keys:
         return 0, 0, 0, 0, 0
@@ -94,7 +106,7 @@ def migrate_batch(keys, db_index):
             if dst.exists(key):
                 skipped_existing += 1
                 try:
-                    src.delete(key)
+                    delete_with_retries(src, key)
                     print(f"🗑️ Deleted key from source (already existed in target): {key.hex()}", flush=True)
                 except Exception as e:
                     print(f"⚠️ Failed to delete key from source: {key.hex()} ({e})", flush=True)
@@ -140,7 +152,7 @@ def migrate_batch(keys, db_index):
         successful_keys = [k for k, r in zip(keys_to_delete, results) if r is True or r == b'OK' or isinstance(r, int)]
         if successful_keys:
             try:
-                src.delete(*successful_keys)
+                delete_with_retries(src, *successful_keys)
                 print(f"🗑️ Deleted {len(successful_keys)} keys from source. Example keys: {[k.hex() for k in successful_keys[:5]]}", flush=True)
             except Exception as e:
                 print(f"⚠️ Failed to delete keys from source: {e}", flush=True)
