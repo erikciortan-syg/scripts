@@ -81,7 +81,11 @@ def migrate_batch(keys, db_index):
                 continue
             if dst.exists(key):
                 skipped_existing += 1
-                keys_to_delete.append(key)
+                try:
+                    src.delete(key)
+                    print(f"🗑️ Deleted key from source (already existed in target): {key.hex()}", flush=True)
+                except Exception as e:
+                    print(f"⚠️ Failed to delete key from source: {key.hex()} ({e})", flush=True)
                 continue
 
             key_type = src.type(key)
