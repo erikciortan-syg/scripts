@@ -125,6 +125,7 @@ def migrate_batch(keys, db_index):
         if successful_keys:
             try:
                 src.delete(*successful_keys)
+                print(f"🗑️ Deleted {len(successful_keys)} keys from source. Example keys: {[k.hex() for k in successful_keys[:5]]}", flush=True)
             except Exception as e:
                 print(f"⚠️ Failed to delete keys from source: {e}", flush=True)
         migrated += len(successful_keys)
