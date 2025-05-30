@@ -29,9 +29,9 @@ DST_REDIS = {
 SHARD_TOTAL = int(os.getenv("SHARD_TOTAL", "1"))
 SHARD_INDEX = int(os.getenv("SHARD_INDEX", "0"))
 
-THREADS = 40
-BATCH_SIZE = 5000
-SCAN_COUNT = 10000
+THREADS = 20
+BATCH_SIZE = 1000
+SCAN_COUNT = 5000
 
 def connect(cfg):
     return redis.Redis(
