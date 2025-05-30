@@ -42,7 +42,6 @@ def connect(cfg):
         ssl=cfg['ssl'],
         db=cfg['db'],
         decode_responses=False,
-        retry_on_timeout=True,
         socket_timeout=30,
     )
 
