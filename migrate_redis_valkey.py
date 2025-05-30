@@ -4,6 +4,7 @@ import os
 import hashlib
 import re
 from datetime import datetime
+import time
 
 
 
@@ -42,12 +43,23 @@ def connect(cfg):
         db=cfg['db'],
         decode_responses=False,
         retry_on_timeout=True,
-        socket_timeout=10,
+        socket_timeout=30,
     )
 
 def is_my_key(key: bytes) -> bool:
     key_hash = int(hashlib.md5(key).hexdigest(), 16)
     return key_hash % SHARD_TOTAL == SHARD_INDEX
+
+def execute_with_retries(pipe, retries=3, delay=5):
+    for attempt in range(retries):
+        try:
+            return pipe.execute()
+        except redis.exceptions.RedisError as e:
+            print(f"❌ Pipeline failed (attempt {attempt+1}/{retries}): {e}", flush=True)
+            if attempt < retries - 1:
+                time.sleep(delay)
+            else:
+                raise
 
 def migrate_batch(keys, db_index):
     if not keys:
@@ -123,7 +135,7 @@ def migrate_batch(keys, db_index):
             print(f"Failed to migrate key: {key} ({e})", flush=True)
 
     try:
-        results = pipe.execute()
+        results = execute_with_retries(pipe)
         # Only delete keys that were successfully migrated
         successful_keys = [k for k, r in zip(keys_to_delete, results) if r is True or r == b'OK' or isinstance(r, int)]
         if successful_keys:
